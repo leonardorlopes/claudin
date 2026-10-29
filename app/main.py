@@ -64,6 +64,16 @@ def _session_config(options: dict[str, Any]) -> dict[str, Any]:
 
 @app.websocket("/ws/live")
 async def live_session(websocket: WebSocket) -> None:
+    # The server is intended for localhost development only. Reject cross-origin
+    # browser connections to reduce accidental exposure of a local API key/quota.
+    origin = websocket.headers.get("origin", "")
+    allowed_origins = {
+        f"http://localhost:{settings.port}",
+        f"http://127.0.0.1:{settings.port}",
+    }
+    if origin and origin not in allowed_origins:
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
     if not settings.google_api_key:
         await websocket.send_json(
