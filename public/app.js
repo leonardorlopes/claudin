@@ -1,5 +1,6 @@
 const $ = (selector) => document.querySelector(selector);
-const state = {personality:'direct',socket:null,stream:null,context:null,source:null,processor:null,silentGain:null,timer:null,startedAt:null,nextPlayAt:0,muted:false};
+const FRAME_SAMPLES = 1600; // 100 ms at 16 kHz
+const state = {personality:'direct',socket:null,stream:null,context:null,source:null,processor:null,timer:null,startedAt:null,nextPlayAt:0,muted:false,pendingChunks:[],pendingSamples:0};
 const startButton=$('#startButton'), endButton=$('#endButton'), micButton=$('#micButton');
 const log=$('#conversationLog'), welcome=$('#welcomeState');
 for(const button of document.querySelectorAll('[data-personality]')) button.addEventListener('click',()=>{
@@ -27,22 +28,42 @@ function playPcm(base64){
 }
 function sendAudio(float32){
  if(!state.socket||state.socket.readyState!==WebSocket.OPEN||state.muted)return;
- // The input AudioContext is opened at 16kHz, matching Gemini Live's raw PCM input format.
  const pcm=new Int16Array(float32.length);
  for(let i=0;i<float32.length;i++){const sample=Math.max(-1,Math.min(1,float32[i]));pcm[i]=sample<0?sample*32768:sample*32767}
  const bytes=new Uint8Array(pcm.buffer);let binary='';for(let i=0;i<bytes.length;i++)binary+=String.fromCharCode(bytes[i]);
  state.socket.send(JSON.stringify({type:'audio',data:btoa(binary)}));
 }
+function resampleTo16k(input, inputRate){
+ if(inputRate===16000)return input;
+ const outputLength=Math.max(1,Math.floor(input.length*16000/inputRate));
+ const output=new Float32Array(outputLength), ratio=inputRate/16000;
+ for(let i=0;i<outputLength;i++){const position=i*ratio, left=Math.floor(position), fraction=position-left;const right=Math.min(left+1,input.length-1);output[i]=(input[left]||0)*(1-fraction)+(input[right]||0)*fraction}
+ return output;
+}
+function queueAudio(samples){
+ state.pendingChunks.push(samples);state.pendingSamples+=samples.length;
+ while(state.pendingSamples>=FRAME_SAMPLES){
+  const frame=new Float32Array(FRAME_SAMPLES);let written=0;
+  while(written<FRAME_SAMPLES){
+   const head=state.pendingChunks[0], take=Math.min(head.length,FRAME_SAMPLES-written);
+   frame.set(head.subarray(0,take),written);written+=take;
+   if(take===head.length)state.pendingChunks.shift();else state.pendingChunks[0]=head.subarray(take);
+   state.pendingSamples-=take;
+  }
+  sendAudio(frame);
+ }
+}
 async function startAudioCapture(){
  state.stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
- state.context=new AudioContext({sampleRate:16000});
+ state.context=new AudioContext();
  await state.context.resume();
+ await state.context.audioWorklet.addModule('/static/pcm-capture-processor.js');
  state.source=state.context.createMediaStreamSource(state.stream);
- // ScriptProcessor is broadly supported for this MVP; replace with AudioWorklet for production.
- state.processor=state.context.createScriptProcessor(2048,1,1);
- state.silentGain=state.context.createGain();state.silentGain.gain.value=0;
- state.processor.onaudioprocess=event=>sendAudio(event.inputBuffer.getChannelData(0));
- state.source.connect(state.processor);state.processor.connect(state.silentGain);state.silentGain.connect(state.context.destination);
+ state.processor=new AudioWorkletNode(state.context,'pcm-capture-processor',{numberOfInputs:1,numberOfOutputs:1,outputChannelCount:[1]});
+ state.processor.port.onmessage=event=>{if(!state.muted)queueAudio(resampleTo16k(event.data,state.context.sampleRate));};
+ // Keep the graph alive without sending microphone audio to the speakers.
+ const silentGain=state.context.createGain();silentGain.gain.value=0;state.silentGain=silentGain;
+ state.source.connect(state.processor);state.processor.connect(silentGain);silentGain.connect(state.context.destination);
 }
 function handleMessage(event){
  let message;try{message=JSON.parse(event.data)}catch{return}
@@ -59,8 +80,7 @@ function handleMessage(event){
 async function start(){
  $('#setupError').hidden=true;startButton.disabled=true;startButton.textContent='Connecting…';connection('Connecting');status('Preparing your Gemini Live session…');
  try{
-  if(!navigator.mediaDevices?.getUserMedia||!window.WebSocket)throw new Error('Atualize o Chrome ou Edge para usar áudio em tempo real.');
-  // Acquire the microphone first so device/permission failures are reported clearly.
+  if(!navigator.mediaDevices?.getUserMedia||!window.WebSocket||!window.AudioWorkletNode)throw new Error('Use uma versão atualizada do Chrome ou Edge para áudio em tempo real.');
   await startAudioCapture();
   const protocol=location.protocol==='https:'?'wss:':'ws:';
   state.socket=new WebSocket(protocol+'//'+location.host+'/ws/live');
@@ -81,10 +101,10 @@ function updateTimer(){if(!state.startedAt)return;const n=Math.floor((Date.now()
 async function cleanup(show=true){
  if(state.timer)clearInterval(state.timer);state.timer=null;state.startedAt=null;
  try{state.processor?.disconnect();state.source?.disconnect();state.silentGain?.disconnect()}catch{}
- state.processor=null;state.source=null;state.silentGain=null;
+ state.processor?.port?.close();state.processor=null;state.source=null;state.silentGain=null;
  state.stream?.getTracks().forEach(track=>track.stop());state.stream=null;
  if(state.socket&&state.socket.readyState===WebSocket.OPEN){try{state.socket.send(JSON.stringify({type:'stop'}));state.socket.close()}catch{}}
- state.socket=null;if(state.context){try{await state.context.close()}catch{}}state.context=null;state.nextPlayAt=0;state.muted=false;micButton.style.opacity='1';
+ state.socket=null;if(state.context){try{await state.context.close()}catch{}}state.context=null;state.nextPlayAt=0;state.muted=false;state.pendingChunks=[];state.pendingSamples=0;micButton.style.opacity='1';
  endButton.disabled=true;micButton.disabled=true;$('#controlTitle').textContent='Session ended';$('#controlSubtitle').textContent='Start another session whenever you’re ready.';$('#sessionTimer').textContent='00:00';
  if(show){connection('Not connected');status('Session ended. Nice work showing up to practice.')}
 }
