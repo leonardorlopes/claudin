@@ -1,0 +1,19 @@
+{
+  "name": "devbuddy-english",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Voice-first English practice for technology professionals",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "check": "node --check server.js && node --check public/app.js"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0"
+  }
+}
