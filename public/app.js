@@ -1,6 +1,6 @@
 const $ = (selector) => document.querySelector(selector);
 const FRAME_SAMPLES = 1600; // 100 ms at 16 kHz
-const state = {personality:'direct',socket:null,stream:null,context:null,source:null,processor:null,timer:null,startedAt:null,nextPlayAt:0,muted:false,pendingChunks:[],pendingSamples:0};
+const state = {personality:'direct',socket:null,stream:null,context:null,source:null,processor:null,timer:null,startedAt:null,nextPlayAt:0,muted:false,pendingChunks:[],pendingSamples:0,audioSources:new Set()};
 const startButton=$('#startButton'), endButton=$('#endButton'), micButton=$('#micButton');
 const log=$('#conversationLog'), welcome=$('#welcomeState');
 for(const button of document.querySelectorAll('[data-personality]')) button.addEventListener('click',()=>{
@@ -23,7 +23,7 @@ function playPcm(base64){
  const bytes=base64ToBytes(base64), pcm=new Int16Array(bytes.buffer,bytes.byteOffset,Math.floor(bytes.byteLength/2));
  const samples=new Float32Array(pcm.length);for(let i=0;i<pcm.length;i++)samples[i]=pcm[i]/32768;
  const buffer=state.context.createBuffer(1,samples.length,24000);buffer.copyToChannel(samples,0);
- const source=state.context.createBufferSource();source.buffer=buffer;source.connect(state.context.destination);
+ const source=state.context.createBufferSource();source.buffer=buffer;source.connect(state.context.destination);state.audioSources.add(source);source.onended=()=>state.audioSources.delete(source);
  const now=state.context.currentTime;state.nextPlayAt=Math.max(state.nextPlayAt,now+0.03);source.start(state.nextPlayAt);state.nextPlayAt+=buffer.duration;
 }
 function sendAudio(float32){
@@ -72,7 +72,7 @@ function handleMessage(event){
   case 'transcript':addLine(message.role==='user'?'user':'assistant',message.text);if(message.role==='user')status('You’re speaking…');else status('DevBuddy is responding…');break;
   case 'audio':playPcm(message.data);break;
   case 'turn_complete':status('Your turn. Speak when you’re ready.');break;
-  case 'interrupted':state.nextPlayAt=state.context?.currentTime||0;status('Response interrupted. Listening to you…');break;
+  case 'interrupted':for(const source of state.audioSources){try{source.stop()}catch{}}state.audioSources.clear();state.nextPlayAt=state.context?.currentTime||0;status('Response interrupted. Listening to you…');break;
   case 'notice':status(message.message);break;
   case 'error':showError(message.message||'Gemini Live returned an error.');break;
  }
@@ -104,7 +104,7 @@ async function cleanup(show=true){
  state.processor?.port?.close();state.processor=null;state.source=null;state.silentGain=null;
  state.stream?.getTracks().forEach(track=>track.stop());state.stream=null;
  if(state.socket&&state.socket.readyState===WebSocket.OPEN){try{state.socket.send(JSON.stringify({type:'stop'}));state.socket.close()}catch{}}
- state.socket=null;if(state.context){try{await state.context.close()}catch{}}state.context=null;state.nextPlayAt=0;state.muted=false;state.pendingChunks=[];state.pendingSamples=0;micButton.style.opacity='1';
+ state.socket=null;for(const source of state.audioSources){try{source.stop()}catch{}}state.audioSources.clear();if(state.context){try{await state.context.close()}catch{}}state.context=null;state.nextPlayAt=0;state.muted=false;state.pendingChunks=[];state.pendingSamples=0;micButton.style.opacity='1';
  endButton.disabled=true;micButton.disabled=true;$('#controlTitle').textContent='Session ended';$('#controlSubtitle').textContent='Start another session whenever you’re ready.';$('#sessionTimer').textContent='00:00';
  if(show){connection('Not connected');status('Session ended. Nice work showing up to practice.')}
 }
