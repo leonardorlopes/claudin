@@ -1,42 +1,49 @@
 # DevBuddy English
 
-Voice-first English practice for Brazilian technology professionals. This repository contains a local Windows MVP using Node.js, Express, and the OpenAI Realtime API over WebRTC.
+Voice-first English practice for Brazilian technology professionals. The Gemini branch uses Python, FastAPI and the Google Gen AI SDK with the Gemini Live API.
 
 ## Requirements
 - Windows 10/11
-- Node.js 22.6+
-- An OpenAI API key with API billing/access enabled for the selected Realtime model
+- Python 3.11+
+- Google AI Studio API key with access to a Gemini Live model
 - Chrome or Edge with microphone permission
 
-ChatGPT subscription and API usage are billed separately.
+Google AI Plus and Gemini API billing/quota are separate; confirm the model's current free-tier eligibility and limits in AI Studio.
 
-## Run locally
-1. Copy this repository to your Windows computer.
-2. In PowerShell, run `Copy-Item .env.example .env`.
-3. Add your key to `.env` as `OPENAI_API_KEY=...`. Never commit `.env`.
-4. Run `npm install`.
-5. Run `npm run check`.
-6. Run `npm start`.
-7. Open http://localhost:3000 and allow microphone access.
+## Run locally on Windows
+1. Create a key at https://aistudio.google.com/apikey.
+2. Copy `.env.example` to `.env` and set `GOOGLE_API_KEY`.
+3. Double-click `start-devbuddy.bat`, or use PowerShell:
 
-## MVP features
-- Voice conversation over WebRTC.
-- Friendly, Direct, and Tough personalities.
-- Beginner to advanced self-assessment.
-- Scenarios for small talk, APIs, AWS, meetings, and interviews.
-- Visible conversation transcripts and session controls.
-- Server-side creation of short-lived client credentials.
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -e ".[dev]"
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
 
-## Security and limitations
-- The permanent API key stays on the server.
-- Audio is sent to the configured AI provider during live sessions.
-- No database or user accounts in v0.1; session history is only in the current browser tab.
-- The selected level is self-assessed, not a certified proficiency score.
-- This is a local prototype, not production-ready. Add authentication, rate limits, privacy controls and cost limits before exposing it to other users.
+4. Open http://localhost:8000 and allow microphone access.
 
-## Documentation
-See [docs/DEVELOPMENT_SPEC.md](docs/DEVELOPMENT_SPEC.md).
+## Architecture
+- `app/main.py`: FastAPI routes and WebSocket bridge to Gemini Live.
+- `app/config.py`: typed, validated environment configuration.
+- `app/prompts.py`: centralized tutoring instructions and scenario/personality maps.
+- `public/`: static browser UI and PCM audio capture/playback.
+- `tests/`: unit tests.
+- `pyproject.toml`: dependency and Ruff/Pytest configuration.
+
+## Engineering practices
+- API key remains server-side in `.env`; `.gitignore` excludes secrets and virtual environments.
+- Pydantic Settings for environment config; typed Python functions and modular prompt construction.
+- Ruff linting/import sorting and Pytest unit tests.
+- Localhost-only binding by default; user-facing errors avoid returning provider details or secrets.
+- No accounts, database, saved conversation history or production deployment in this MVP.
+
+## Audio notes
+The browser sends mono 16-bit PCM at 16 kHz through a local WebSocket; the server forwards audio to Gemini Live and streams back 24 kHz PCM audio. This branch uses ScriptProcessorNode for MVP compatibility; replace it with AudioWorklet before production.
 
 ## Official references
-- https://developers.openai.com/api/docs/guides/realtime
-- https://developers.openai.com/api/docs/guides/voice-webrtc
+- https://ai.google.dev/gemini-api/docs/live
+- https://ai.google.dev/gemini-api/docs/live-api/capabilities
+- https://ai.google.dev/gemini-api/docs/pricing

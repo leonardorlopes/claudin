@@ -1,0 +1,26 @@
+[project]
+name = "devbuddy-english"
+version = "0.2.0"
+description = "Voice-first English practice with Gemini Live API"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "google-genai>=1.30,<2.0",
+  "pydantic-settings>=2.6,<3.0",
+  "uvicorn[standard]>=0.30,<1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0,<9.0", "httpx>=0.27,<1.0", "ruff>=0.8,<1.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
