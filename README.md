@@ -41,7 +41,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 - No accounts, database, saved conversation history or production deployment in this MVP.
 
 ## Audio notes
-The browser sends mono 16-bit PCM at 16 kHz through a local WebSocket; the server forwards audio to Gemini Live and streams back 24 kHz PCM audio. This branch uses ScriptProcessorNode for MVP compatibility; replace it with AudioWorklet before production.
+The browser sends mono 16-bit PCM at 16 kHz through a local WebSocket; the server forwards audio to Gemini Live and streams back 24 kHz PCM audio. The browser uses AudioWorklet for capture and resamples to 16 kHz before sending PCM frames. A production deployment should add stronger session lifecycle controls, automated browser tests and explicit privacy UX.
 
 ## Official references
 - https://ai.google.dev/gemini-api/docs/live
